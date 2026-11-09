@@ -19,7 +19,12 @@ export function accessLog(req, res, next) {
     logger[level]('http_request', {
       requestId: req.id,
       method: req.method,
-      path: req.route?.path ? req.baseUrl + req.route.path : req.path,
+      // `req.originalUrl`, not `req.baseUrl + req.route.path`: by the time 'finish'
+      // fires on an error response, Express has unwound the router stack and reset
+      // `baseUrl`, so that form logged a 400 on GET /api/v1/tickets/:id as just
+      // "/:id". Higher cardinality, but a log line that names the wrong endpoint is
+      // worse than one you have to group yourself.
+      path: req.originalUrl.split('?')[0],
       status: res.statusCode,
       durationMs: Number(durationMs.toFixed(1)),
       keyId: req.auth?.keyId ?? null,
