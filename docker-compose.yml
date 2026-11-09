@@ -1,0 +1,62 @@
+# One command to run everything:  docker compose up --build
+#
+# Brings up Postgres, the API (which applies migrations on boot) and a separate worker
+# process, so the "two workers must not process the same ticket" property is exercised
+# by default rather than just claimed.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: triage
+      POSTGRES_PASSWORD: triage
+      POSTGRES_DB: triage
+    ports:
+      # Host port 5433 by default: most developer machines already have something on
+      # 5432. Override with DB_PORT if you want the standard one.
+      - '${DB_PORT:-5433}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U triage -d triage']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    init: true
+    command: ['node', 'src/server.js', '--role=api']
+    environment:
+      DATABASE_URL: postgres://triage:triage@db:5432/triage
+      PORT: '3000'
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TRIAGE_MODEL: ${TRIAGE_MODEL:-claude-opus-5-5}
+      API_KEYS: ${API_KEYS:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '${PORT:-3000}:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    init: true
+    command: ['node', 'src/server.js', '--role=worker']
+    environment:
+      DATABASE_URL: postgres://triage:triage@db:5432/triage
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TRIAGE_MODEL: ${TRIAGE_MODEL:-claude-opus-5-5}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Both services run migrations on boot; the runner takes a Postgres advisory lock,
+    # so whichever starts first migrates and the other waits and finds nothing to do.
+    # Scale freely: `docker compose up --scale worker=3`
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

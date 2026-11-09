@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log
+.env
+.env.local
+coverage
+.DS_Store
+*.log
+
+# The assignment brief itself is not part of the deliverable
+Backend-Developer.pdf
