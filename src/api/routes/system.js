@@ -76,6 +76,22 @@ export function usageRouter() {
           model: config.llm.provider === 'fake' ? 'fake-triage-v1' : config.llm.model,
           prompt_version: PROMPT_VERSION,
           prompt_fingerprint: PROMPT_FINGERPRINT,
+          validation_attempts: config.triage.validationAttempts,
+          cache_enabled: config.triage.cacheEnabled,
+        },
+        // Echo the settings this instance is actually running with. Configuration is
+        // snapshotted at boot (so it cannot change under a ticket mid-flight), which
+        // means an edited .env and a running process can silently disagree - this is
+        // how you tell. Only tuning values: no secrets, no connection strings.
+        worker: {
+          role: config.role,
+          enabled: config.worker.enabled,
+          concurrency: config.worker.concurrency,
+          batch_size: config.worker.batchSize,
+          max_attempts: config.worker.maxAttempts,
+          backoff_base_ms: config.worker.backoffBaseMs,
+          backoff_max_ms: config.worker.backoffMaxMs,
+          stale_lock_ms: config.worker.staleLockMs,
         },
       });
     }),
