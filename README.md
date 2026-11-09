@@ -377,13 +377,23 @@ lite model mis-ranking priority.
 
 Two properties make that choice safe to revisit:
 
-- **Measure before you move.** Measured against the live API on the seeded tickets, one
-  triage costs **~520 input and ~90 output tokens** and returns in **~1.7 s**.
-  `GET /api/v1/usage/daily` reports the real figures for your own traffic, including
-  failed calls, which cost money too. Multiply by the current rate for your tier at
+- **Measure before you move.** Measured against the live API, one triage costs
+  **~515 input and ~95 output tokens** (≈610 total) and takes **~9 s**, median over a
+  small sample, with a wide spread (2-10 s). `GET /api/v1/usage/daily` reports the real
+  figures for your own traffic, including failed calls, which cost money too. Multiply
+  by the current rate for your tier at
   [AI Studio pricing](https://aistudio.google.com/pricing) rather than by a number
   written into a README months ago. Changing model is one environment variable, and the
   free tier is enough to run a comparison before committing.
+- **Latency is the surprise, not cost.** ~9 s per ticket is slower than it looks on
+  paper, and it is the single best argument for the shape of this service: submission
+  returns in ~40 ms because it never waits for the model. Setting
+  `GEMINI_THINKING_LEVEL=low` roughly halved the median (~8.9 s to ~4.7 s) and produced
+  **identical** category and priority on every ticket in my sample - triage is not a
+  reasoning-heavy task. I left the default unset, because not every model accepts the
+  parameter and a wrong value is a 400 rather than a graceful ignore, but it is the
+  first knob I would turn, after re-measuring on real traffic. The sample was small and
+  the variance wide, so treat that as a direction to investigate, not a benchmark.
 - **Switching is safe.** `TRIAGE_MODEL` is part of the cache key, so results produced by
   the old model are never reused for the new one. There is no "flush the cache" step to
   get wrong during the migration.
@@ -586,9 +596,12 @@ is the subtler and far more common version of the problem.
 submission is one INSERT (~40 ms, and Postgres will do thousands/second), and the claim
 query is an index scan over a *partial* index containing only the backlog.
 
-**The provider rate limit breaks first.** At ~2 s per call you need ~6 calls in flight
-just to keep up with the average, and bursts are not average. Hit the per-minute request
-or token limit and every worker starts taking 429s at once. The service degrades
+**The provider rate limit breaks first.** At a measured ~9 s per call you need roughly
+**25 calls in flight** just to keep up with the average, and bursts are not average.
+That is 25 concurrent requests against a per-project quota - so the per-minute request
+or token limit is what you hit, and when you do, every worker starts taking 429s at
+once. (Dropping per-call latency, via `GEMINI_THINKING_LEVEL` or a faster model, lowers
+the required concurrency proportionally - it is a quota lever as much as a speed one.) The service degrades
 correctly - 429s are transient, tickets are requeued with jittered backoff and nothing is
 lost - but the backlog grows and triage latency climbs from seconds to minutes. The fix
 is a client-side token-bucket shared across workers (one more Postgres table, or Redis)
