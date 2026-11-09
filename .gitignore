@@ -8,3 +8,7 @@ coverage
 
 # The assignment brief itself is not part of the deliverable
 Backend-Developer.pdf
+
+# Editor settings are personal, not part of the deliverable
+.vscode/
+.idea/
