@@ -3,7 +3,7 @@ import * as repo from '../db/tickets.repo.js';
 import { backoffMs } from '../lib/backoff.js';
 import { truncate } from '../lib/text.js';
 import { InvalidModelOutputError, PermanentLLMError } from '../llm/errors.js';
-import { PROMPT_FINGERPRINT } from '../llm/prompt.js';
+import { PROMPT_FINGERPRINT, looksLikeInjection } from '../llm/prompt.js';
 import { buildCacheKey } from './cacheKey.js';
 import { detectDuplicates } from './duplicates.js';
 import { runTriage } from './triager.js';
@@ -62,7 +62,16 @@ export async function processTicket(ticket, { provider, embedder, logger, settin
     if (cached) {
       await repo.completeTriage({
         ticketId: ticket.id,
-        result: cached,
+        // The cached entry holds the model's own judgement. The local heuristic is
+        // free and may have been tightened since the entry was written, so it is
+        // re-applied here rather than frozen into the cache.
+        result: {
+          ...cached,
+          injection_suspected:
+            cached.injection_suspected ||
+            looksLikeInjection(`${ticket.subject}
+${ticket.body}`),
+        },
         provider: cached.provider,
         model: cached.model,
         promptVersion: cached.prompt_version,

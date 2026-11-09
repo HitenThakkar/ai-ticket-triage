@@ -367,8 +367,11 @@ export async function recordLlmCall({
 }
 
 export async function getUsageByTicket(ticketId) {
+  // `calls` counts requests that actually reached the provider. A cache hit is in the
+  // same ledger - that is how the saving stays visible - but it is not a model call.
   const { rows } = await query(
-    `SELECT count(*)::bigint AS calls,
+    `SELECT count(*) FILTER (WHERE outcome <> 'cache_hit')::bigint AS calls,
+            count(*) FILTER (WHERE outcome = 'cache_hit')::bigint  AS cache_hits,
             coalesce(sum(input_tokens), 0)::bigint AS input_tokens,
             coalesce(sum(output_tokens), 0)::bigint AS output_tokens
      FROM llm_calls WHERE ticket_id = $1`,
@@ -377,6 +380,7 @@ export async function getUsageByTicket(ticketId) {
   const row = rows[0];
   return {
     calls: Number(row.calls),
+    cache_hits: Number(row.cache_hits),
     input_tokens: Number(row.input_tokens),
     output_tokens: Number(row.output_tokens),
     total_tokens: Number(row.input_tokens) + Number(row.output_tokens),

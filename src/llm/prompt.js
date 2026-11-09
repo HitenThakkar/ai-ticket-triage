@@ -125,7 +125,9 @@ const INJECTION_PATTERNS = [
   /\byou\s+are\s+now\b/i,
   /\bsystem\s*prompt\b/i,
   /\bact\s+as\s+(an?|the)\b/i,
-  /\b(set|mark|classify|treat)\s+(this|it)\s+(ticket\s+)?as\s+(urgent|high|low|medium)\b/i,
+  /\b(set|mark|classify|treat|escalate)\s+(this|it)\s+(ticket\s+)?(as\s+|to\s+)?(urgent|high|low|medium|p[0-4])\b/i,
+  /\b(priority|category)\s*[:=]\s*\w+/i,
+  /\bset\s+(the\s+)?(priority|category)\s+to\b/i,
   /<\/?(system|assistant|instructions?)\b/i,
   /\bnew\s+instructions?\b/i,
 ];
