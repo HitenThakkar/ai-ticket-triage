@@ -1,0 +1,2 @@
+# Keep LF in the repo so a Linux checkout and a Windows checkout agree
+* text=auto eol=lf
