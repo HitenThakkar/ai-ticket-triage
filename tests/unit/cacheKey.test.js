@@ -6,8 +6,8 @@ import { normalizeTicketText } from '../../src/lib/text.js';
 const BASE = {
   subject: 'Charged twice',
   body: 'We were billed twice for invoice INV-1.',
-  provider: 'anthropic',
-  model: 'claude-opus-5-5',
+  provider: 'gemini',
+  model: 'gemini-3.5-flash-lite',
   promptFingerprint: 'v1-abc123',
 };
 
@@ -30,7 +30,7 @@ describe('cache key', () => {
   });
 
   test('changes when the model changes', () => {
-    assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, model: 'claude-haiku-5-5' }));
+    assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, model: 'gemini-3.8-flash' }));
   });
 
   test('changes when the provider changes', () => {
