@@ -285,6 +285,14 @@ Responses omit the full ticket body (it is on the single-ticket endpoint).
 }
 ```
 
+### Postman
+
+`postman_collection.json` in the repo root imports straight into Postman: 21 requests
+covering the core flow, the failure paths, every error code and the operational
+endpoints, each with assertions and a short note on what it demonstrates. Submitting a
+ticket stores its id in a collection variable, so the follow-up requests target it
+without copy-pasting UUIDs. Set the `apiKey` variable to match `API_KEYS`.
+
 ### Status codes
 
 | Code | When |
