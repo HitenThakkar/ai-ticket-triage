@@ -34,10 +34,13 @@ const envSchema = z.object({
   PG_STATEMENT_TIMEOUT_MS: int(10_000, { min: 100 }),
 
   // --- LLM provider ---
-  LLM_PROVIDER: z.enum(['fake', 'anthropic']).optional().default('fake'),
-  ANTHROPIC_API_KEY: z.string().optional().default(''),
-  TRIAGE_MODEL: z.string().optional().default('claude-opus-5-5'),
-  TRIAGE_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional().default('low'),
+  LLM_PROVIDER: z.enum(['fake', 'gemini']).optional().default('fake'),
+  GEMINI_API_KEY: z.string().optional().default(''),
+  // Gemini model IDs are retired on a published schedule, so this is configuration,
+  // never a constant in code. `npm run models` lists what the current key can use.
+  TRIAGE_MODEL: z.string().optional().default('gemini-3.5-flash-lite'),
+  // Optional: omitted from the request unless set, because not every model accepts it.
+  GEMINI_THINKING_LEVEL: z.enum(['minimal', 'low', 'medium', 'high']).optional(),
   TRIAGE_MAX_TOKENS: int(1024, { min: 256, max: 8192 }),
   LLM_TIMEOUT_MS: int(20_000, { min: 500 }),
   LLM_STRUCTURED_OUTPUT: bool('true'),
@@ -126,9 +129,9 @@ export const config = Object.freeze({
 
   llm: Object.freeze({
     provider: env.LLM_PROVIDER,
-    apiKey: env.ANTHROPIC_API_KEY,
+    apiKey: env.GEMINI_API_KEY,
     model: env.TRIAGE_MODEL,
-    effort: env.TRIAGE_EFFORT,
+    thinkingLevel: env.GEMINI_THINKING_LEVEL,
     maxTokens: env.TRIAGE_MAX_TOKENS,
     timeoutMs: env.LLM_TIMEOUT_MS,
     structuredOutput: env.LLM_STRUCTURED_OUTPUT,

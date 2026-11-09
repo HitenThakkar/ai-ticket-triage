@@ -31,8 +31,8 @@ services:
       DATABASE_URL: postgres://triage:triage@db:5432/triage
       PORT: '3000'
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      TRIAGE_MODEL: ${TRIAGE_MODEL:-claude-opus-5-5}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TRIAGE_MODEL: ${TRIAGE_MODEL:-gemini-3.5-flash-lite}
       API_KEYS: ${API_KEYS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
@@ -48,8 +48,8 @@ services:
     environment:
       DATABASE_URL: postgres://triage:triage@db:5432/triage
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      TRIAGE_MODEL: ${TRIAGE_MODEL:-claude-opus-5-5}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TRIAGE_MODEL: ${TRIAGE_MODEL:-gemini-3.5-flash-lite}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     # Both services run migrations on boot; the runner takes a Postgres advisory lock,
     # so whichever starts first migrates and the other waits and finds nothing to do.

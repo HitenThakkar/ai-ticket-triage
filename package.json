@@ -15,12 +15,13 @@
     "migrate": "node scripts/migrate.js up",
     "migrate:status": "node scripts/migrate.js status",
     "seed": "node scripts/seed.js",
+    "models": "node scripts/models.js",
     "test": "node --test \"tests/unit/*.test.js\"",
     "test:integration": "node --test --test-concurrency=1 \"tests/integration/*.test.js\"",
     "test:all": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.68.0",
+    "@google/genai": "^2.32.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.1",

@@ -4,9 +4,12 @@ A small backend service where customers submit support tickets, a background wor
 triages each one with a language model, and the support team fetches and filters the
 results.
 
-Node.js + Express + PostgreSQL. No queue broker, no Redis - Postgres is the queue.
-The default language-model provider is a deterministic local fake, so **everything,
-including the full test suite, runs without an API key**.
+Node.js + Express + PostgreSQL, with **Google Gemini** as the language model. No queue
+broker, no Redis - Postgres is the queue.
+
+The provider sits behind a one-method interface with two implementations: Gemini, and a
+deterministic local fake that is the default. So **everything, including all 152 tests,
+runs with no API key and no network**.
 
 ```
 POST /api/v1/tickets ──▶ tickets (status=pending) ──▶ NOTIFY
@@ -142,8 +145,9 @@ Or globally, with `FAKE_FAILURE_RATE=0.3 FAKE_FAILURE_MODE=rate_limit`.
 **Unit tests need nothing at all** - no database, no network, no API key:
 
 ```bash
-npm test          # 79 tests: output validation, retry logic, cache keys,
-                  # backoff, prompt construction, input validation, embeddings
+npm test          # 103 tests: output validation, retry logic, cache keys, backoff,
+                  # prompt construction, input validation, embeddings, and the
+                  # Gemini request shape + error mapping (with a stubbed client)
 ```
 
 Integration tests need a throwaway Postgres (they migrate and truncate it themselves):
@@ -171,15 +175,52 @@ fingerprint misses the cache.
 
 ## Using a real model
 
-Set two environment variables. Nothing else changes:
+The real provider is **Google Gemini**, through the official `@google/genai` SDK. Set
+two environment variables; nothing else changes:
 
 ```bash
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=...        # from https://aistudio.google.com/apikey
 ```
 
-Optional: `TRIAGE_MODEL` (default `claude-opus-5-5`), `TRIAGE_EFFORT` (default `low`),
-`LLM_TIMEOUT_MS` (default 20s), `LLM_STRUCTURED_OUTPUT` (default on).
+> **Worth knowing:** a Gemini / Google AI Pro *subscription* covers the Gemini app, not
+> the API. API access uses a separate AI Studio key, which has its own free tier - that
+> free tier is enough to evaluate this service.
+
+Check which models your key can actually use:
+
+```bash
+npm run models
+# MODEL ID                IN/OUT TOKENS   NAME
+# gemini-3.5-flash-lite   1048576/65536   Gemini 3.5 Flash-Lite
+# ...
+# 42 models available. Currently configured: gemini-3.5-flash-lite
+```
+
+That script exists because Gemini retires model IDs on a published schedule
+(`gemini-2.5-flash` and `gemini-2.5-pro` are already deprecated). `TRIAGE_MODEL` is
+therefore configuration, never a constant in code, and a retired ID produces a clear
+error rather than a bare 404:
+
+```
+Gemini model not found (404). Check TRIAGE_MODEL against the models your key can use -
+run "npm run models" to list them.
+```
+
+Other optional settings: `GEMINI_THINKING_LEVEL` (`minimal|low|medium|high`, omitted
+from the request unless set, because not every model accepts it), `LLM_TIMEOUT_MS`
+(default 20s), `LLM_STRUCTURED_OUTPUT` (default on), `TRIAGE_MAX_TOKENS` (default 1024).
+
+**Which Gemini API.** The adapter uses `ai.interactions.create(...)` - the Interactions
+API, which Google documents as GA and the recommended interface for new projects.
+`models.generateContent` still works but is now the legacy path. Interactions gives us
+everything this service needs in documented fields: a top-level `system_instruction`,
+`generation_config.max_output_tokens`, `response_format` with a JSON schema, a top-level
+`usage` block, and a terminal `status` we can branch on.
+
+**Privacy.** Every call sets `store: false`, so Google does not retain the interaction
+for later retrieval. Each triage is a single independent call - we never use
+`previous_interaction_id` - so there is nothing to give up by turning storage off.
 
 The provider interface is one method:
 
@@ -190,8 +231,10 @@ provider.triage({ system, user, ticket, signal })
 ```
 
 Adding a provider means implementing that and mapping its errors onto those two classes
-(`src/llm/anthropic.js` is ~120 lines, most of it the error mapping). Everything
-downstream - validation, retries, caching, locking - is provider-agnostic.
+(`src/llm/gemini.js` is ~180 lines, most of it the error and status mapping). Everything
+downstream - validation, retries, caching, locking - is provider-agnostic, which is also
+why swapping the provider cost one new file and no changes at all to the worker, the
+cache or the API.
 
 ---
 
@@ -319,21 +362,28 @@ boots are safe. `npm run migrate` / `npm run migrate:status`.
 
 ### 1. Model choice and prompt design
 
-**Model.** The default is `claude-opus-5-5` with `effort: low`. Triage is a short,
-well-specified classification over a few hundred tokens, which is the easiest kind of
-work a model does - the reason to pick a strong model is that misclassifying an outage
-as "low" costs far more than the call does. That said, this is the one knob I would
-expect a team to turn, so it is one environment variable:
+**Model.** The default is `gemini-3.5-flash-lite` - a stable, high-throughput model.
+Triage is a short, well-specified classification over a few hundred tokens: the easiest
+kind of work a model does, and the kind where a Flash-class model is not a compromise.
+Spend is better aimed at the failure mode that actually costs money, which is
+misclassifying an outage as "low", and that is a prompt and evaluation problem before it
+is a model-size problem. `gemini-3.8-flash` is the step up if evaluation shows the
+lite model mis-ranking priority.
 
-| Model | In/out per MTok | ~10k tickets (≈600 in, ≈120 out each) |
-| --- | --- | --- |
-| `claude-opus-5-5` (default) | $4 / $20 | ≈ $48 |
-| `claude-haiku-5-5` | $0.10 / $0.50 | ≈ $1.20 |
+Two properties make that choice safe to revisit:
 
-At 1M tickets/day that is ~$4,800/day versus ~$120/day, so at volume I would run an
-offline evaluation of Haiku against a few hundred human-labelled tickets, and move if
-agreement on `priority` holds. The architecture does not care: `TRIAGE_MODEL`
-changes the cache key, so old results are never reused for the new model.
+- **Measure before you move.** A ticket costs ~600 input and ~120 output tokens
+  (`GET /api/v1/usage/daily` reports the real numbers for your traffic, including the
+  failed calls, which cost money too). Multiply by the current rate for your tier at
+  [AI Studio pricing](https://aistudio.google.com/pricing) rather than by a number
+  written in a README months ago. Changing model is one environment variable, and the
+  free tier is enough to run a comparison before committing.
+- **Switching is safe.** `TRIAGE_MODEL` is part of the cache key, so results produced by
+  the old model are never reused for the new one. There is no "flush the cache" step to
+  get wrong during the migration.
+
+I would make that decision with a few hundred human-labelled tickets, scoring agreement
+on `priority` first - that is the field with asymmetric cost - and `category` second.
 
 **Prompt.** One call produces category, priority, summary, suggested reply and an
 injection flag - splitting them into separate calls would multiply cost and latency for
@@ -351,9 +401,9 @@ no accuracy gain, since they all need the same context. The system prompt (in
 - the ticket is injected inside a per-request, unguessable delimiter, with the system
   prompt stating that the content is data and never instructions.
 
-Providers that support constrained decoding get the JSON Schema
-(`output_config.format`), which makes malformed output rare. The validator runs
-regardless - see next section.
+Gemini receives the same JSON Schema as a `response_format`, so decoding is constrained
+and malformed output is rare. The validator runs regardless - and in this case that is
+not belt-and-braces, as the next section explains.
 
 ### 2. How bad model output never reaches the database
 
@@ -361,6 +411,13 @@ There is exactly one path from the model to the database, and it has a gate in t
 middle. `runTriage()` (`src/triage/triager.js`) can only return a validated object; a
 response that fails validation raises instead, so there is no code path where an invalid
 result is in a variable that the persistence layer can see.
+
+Constrained decoding is a cost optimisation, not a trust boundary - and with Gemini
+that is measurable rather than theoretical. Its structured-output support explicitly
+**ignores** `minLength`, `maxLength`, `minProperties`, `maxProperties` and
+`uniqueItems`; Google's own documentation says to enforce those in the application. So
+the provider cannot guarantee the 200-character summary limit that the database column
+requires. Our validator can, and does.
 
 The gate (`src/triage/schema.js`) is a `zod` schema that is strict on purpose:
 
@@ -641,9 +698,9 @@ src/
     pool.js              pg pool, transactions   migrate.js  the migration runner
     tickets.repo.js      every SQL statement the app runs
   llm/
-    index.js             provider factory (anthropic imported lazily)
+    index.js             provider factory (gemini imported lazily)
     fake.js              deterministic provider + failure injection
-    anthropic.js         real provider + error mapping
+    gemini.js            real provider (Gemini Interactions API) + error mapping
     prompt.js            system prompt, delimiters, fingerprint, injection heuristic
     embeddings.js        local hashed embedder for duplicate detection
     errors.js            TransientLLMError | PermanentLLMError | InvalidModelOutputError
@@ -656,7 +713,7 @@ src/
   worker/worker.js       claim loop, concurrency, LISTEN/NOTIFY, graceful stop
   lib/                   logger, text normalisation + hashing, backoff, HttpError
 migrations/              0001_init.sql, 0002_duplicates.sql
-scripts/                 migrate.js, seed.js
+scripts/                 migrate.js, seed.js, models.js (list usable Gemini models)
 tests/unit/              no database required
 tests/integration/       needs TEST_DATABASE_URL
 ```
