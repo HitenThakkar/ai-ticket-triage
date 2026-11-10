@@ -55,7 +55,6 @@ behaves like the real one, so the service and its whole test suite run offline a
   6. [What breaks first at 10,000 tickets an hour](#6-what-breaks-first-at-10000-tickets-an-hour)
   7. [What I would change for 1,000,000 tickets a day](#7-what-i-would-change-for-1000000-tickets-a-day)
 - [Assumptions I made](#assumptions-i-made)
-- [What I left out on purpose](#what-i-left-out-on-purpose)
 - [Where the code lives](#where-the-code-lives)
 
 ---
