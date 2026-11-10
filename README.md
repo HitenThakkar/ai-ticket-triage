@@ -50,7 +50,7 @@ behaves like the real one, so the service and all 158 tests run offline and for 
   1. [Which model, and how the prompt works](#1-which-model-and-how-the-prompt-works)
   2. [How bad model output never reaches the database](#2-how-bad-model-output-never-reaches-the-database)
   3. [How retries work, and why a ticket is never processed twice](#3-how-retries-work-and-why-a-ticket-is-never-processed-twice)
-  4. [How the cache stays correct](#4-how-the-cache-stays-correct)
+  4. [How cached results stay correct when the prompt or model changes](#4-how-cached-results-stay-correct-when-the-prompt-or-model-changes)
   5. [Prompt injection: what I can and cannot promise](#5-prompt-injection-what-i-can-and-cannot-promise)
   6. [What breaks first at 10,000 tickets an hour](#6-what-breaks-first-at-10000-tickets-an-hour)
   7. [What I would change for 1,000,000 tickets a day](#7-what-i-would-change-for-1000000-tickets-a-day)
@@ -475,6 +475,24 @@ npm run migrate:status   # see what has been applied
 
 ## Key decisions
 
+The brief asked six specific questions. Each has its own section below:
+
+| The question | Answered in | The short version |
+| --- | --- | --- |
+| Why you chose your model and how you designed the prompt | [1](#1-which-model-and-how-the-prompt-works) | `gemini-3.5-flash-lite` — triage is easy work for a model; the hard part is defining priority by impact, not by adjective |
+| How you make sure bad model output never reaches the database | [2](#2-how-bad-model-output-never-reaches-the-database) | One path from model to database, with a strict validator in the middle that can only return valid results or throw |
+| How retries work | [3](#3-how-retries-work-and-why-a-ticket-is-never-processed-twice) | Failures are sorted into temporary and permanent; temporary ones are rescheduled with exponential backoff and jitter |
+| How you stop a ticket being processed twice | [3](#3-how-retries-work-and-why-a-ticket-is-never-processed-twice) | One SQL statement using `FOR UPDATE SKIP LOCKED`, which also flips the status so the exclusion outlives the transaction |
+| How cached results stay correct when the prompt or model changes | [4](#4-how-cached-results-stay-correct-when-the-prompt-or-model-changes) | The prompt and model are part of the cache key, so a change produces a different key. There is nothing to invalidate. |
+| What would break first if 10,000 tickets arrived in an hour | [6](#6-what-breaks-first-at-10000-tickets-an-hour) | The provider's rate limit, well before anything in this service |
+| What you'd change to handle a million tickets a day | [7](#7-what-i-would-change-for-1000000-tickets-a-day) | Cost first, then split the queue table from the record, then partition by time |
+
+Section [5](#5-prompt-injection-what-i-can-and-cannot-promise) covers prompt-injection
+safety, which was one of the optional extras.
+
+How to run it without an API key is covered in [Quick start](#quick-start) — it is the
+default, so there is nothing to switch on.
+
 ### 1. Which model, and how the prompt works
 
 **Model: `gemini-3.5-flash-lite`.** Triage is short, well-specified classification over a
@@ -622,7 +640,7 @@ stale-lock timeout.
 poll. Polling still runs underneath — the notification is an optimisation, never the
 mechanism.
 
-### 4. How the cache stays correct
+### 4. How cached results stay correct when the prompt or model changes
 
 **Short answer: the prompt and the model are part of the cache key, so changing either
 one produces a different key. There is no cache to clear.**
