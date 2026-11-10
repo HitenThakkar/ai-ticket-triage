@@ -246,10 +246,6 @@ Gemini. With no key it stays on the fake, so a fresh clone still runs with no
 credentials and no configuration. Setting `LLM_PROVIDER` explicitly always wins, so
 `LLM_PROVIDER=fake` forces the offline provider even when a key is available.
 
-> **Note:** a Gemini or Google AI Pro *subscription* covers the Gemini app, not the API.
-> API access uses a separate AI Studio key, which has its own free tier. That free tier
-> is enough to run this service.
-
 Check which models your key can use:
 
 ```bash
