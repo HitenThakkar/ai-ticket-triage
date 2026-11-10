@@ -12,3 +12,6 @@ Backend-Developer.pdf
 # Editor settings are personal, not part of the deliverable
 .vscode/
 .idea/
+
+# Shell artifacts
+*.stackdump
