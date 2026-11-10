@@ -77,6 +77,16 @@ const envSchema = z.object({
   DUPLICATE_CANDIDATE_LIMIT: int(25, { min: 1, max: 500 }),
 });
 
+/**
+ * Convenience default: if someone supplies a Gemini key but does not say which
+ * provider to use, they clearly want the real one. Setting LLM_PROVIDER explicitly
+ * always wins, and with no key at all we stay on the fake - so a fresh clone still
+ * runs with no credentials and no configuration.
+ */
+if (!process.env.LLM_PROVIDER && process.env.GEMINI_API_KEY) {
+  process.env.LLM_PROVIDER = 'gemini';
+}
+
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
