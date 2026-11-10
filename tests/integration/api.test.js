@@ -37,6 +37,8 @@ describe('HTTP API', { skip }, () => {
   const post = (payload) =>
     request(app).post('/api/v1/tickets').set('x-api-key', API_KEY).send(payload);
 
+  // The headline requirement: submission is one INSERT. The timing assertion is what
+  // would catch someone accidentally awaiting the model on this path.
   test('submitting returns an id and a status without waiting for the model', async () => {
     const started = Date.now();
     const res = await post(VALID).expect(201);
@@ -46,6 +48,8 @@ describe('HTTP API', { skip }, () => {
     assert.ok(Date.now() - started < 500, 'submission does no triage work');
   });
 
+  // Reporting all problems at once lets a client fix them in a single round trip,
+  // rather than discovering them one 400 at a time.
   test('rejects invalid input with 400 and names every bad field', async () => {
     const res = await post({ ...VALID, subject: '', customer_email: 'nope' }).expect(400);
     const fields = res.body.error.details.issues.map((i) => i.field);
@@ -53,15 +57,21 @@ describe('HTTP API', { skip }, () => {
     assert.ok(fields.includes('customer_email'));
   });
 
+  // Priority is the model's judgement, not the customer's. Silently ignoring the field
+  // would let a client believe it set something it did not.
   test('rejects unknown fields rather than silently dropping them', async () => {
     // Otherwise a client believes it set the priority and never finds out it did not.
     await post({ ...VALID, priority: 'urgent' }).expect(400);
   });
 
+  // Auth is off by default so the service runs out of the box; this proves it is
+  // actually enforced once keys are configured.
   test('requires an API key when one is configured', async () => {
     await request(app).post('/api/v1/tickets').send(VALID).expect(401);
   });
 
+  // The support team's view: the asynchronous result arriving in the API response,
+  // with values inside the allowed sets and a summary that fits the column.
   test('returns the triage result once the worker has run', async () => {
     const { body: created } = await post(VALID).expect(201);
     await newWorker().runOnce();
@@ -77,6 +87,8 @@ describe('HTTP API', { skip }, () => {
     assert.ok(res.body.usage.calls >= 1);
   });
 
+  // The distinction matters: a malformed id is the client's mistake (400), a valid id
+  // that does not exist is a 404. Without the UUID check Postgres would raise a 500.
   test('404s for an unknown ticket, 400s for an id that is not a UUID', async () => {
     await request(app)
       .get('/api/v1/tickets/3f1d2b7c-1b3e-4a1e-9f4a-2c7f1a9d5e01')
@@ -87,6 +99,8 @@ describe('HTTP API', { skip }, () => {
     await request(app).get('/api/v1/tickets/abc').set('x-api-key', API_KEY).expect(400);
   });
 
+  // category and priority live in a joined table, so this covers the join. The invalid
+  // filter returns 400 rather than an empty list that looks like 'no results'.
   test('filters by status, category and priority', async () => {
     await insertTicket({
       subject: 'Invoice charged twice',
@@ -109,6 +123,8 @@ describe('HTTP API', { skip }, () => {
     await request(app).get('/api/v1/tickets?status=archived').set('x-api-key', API_KEY).expect(400);
   });
 
+  // Ordering is created_at DESC, id DESC. Without the id tiebreaker, rows created in
+  // the same millisecond can appear on two pages at once.
   test('paginates without overlapping pages', async () => {
     for (let i = 0; i < 3; i += 1) {
       await insertTicket({ subject: `Ticket ${i}`, body: `Body number ${i}.` });
@@ -129,6 +145,8 @@ describe('HTTP API', { skip }, () => {
     assert.equal(new Set(ids).size, 3, 'pages must not overlap');
   });
 
+  // The operator's recovery path after fixing a key or a prompt. The 409 proves it is
+  // a guarded transition rather than a blanket 'reprocess anything'.
   test('a needs_review ticket can be requeued, a triaged one cannot', async () => {
     const needsReview = await insertTicket({
       subject: 'Export is empty',
@@ -145,6 +163,8 @@ describe('HTTP API', { skip }, () => {
     await request(app).post(`/api/v1/tickets/${ok.id}/retry`).set('x-api-key', API_KEY).expect(409);
   });
 
+  // Orchestrator probes must not need a secret, and readiness must actually check the
+  // database - liveness deliberately does not, so a database blip cannot kill the pod.
   test('health and readiness need no API key', async () => {
     await request(app).get('/healthz').expect(200);
     const ready = await request(app).get('/readyz').expect(200);

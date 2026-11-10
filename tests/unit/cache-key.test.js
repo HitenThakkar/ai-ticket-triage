@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { buildCacheKey } from '../../src/triage/cacheKey.js';
 
 /**
- * The cache key is what makes "don't pay twice" safe. A stale result must be
- * unreachable after a prompt or model change, without anyone having to clear anything.
+ * The cache key is what makes "don't pay twice" safe. Reuse has to be impossible once
+ * the work has changed - and because the key encodes everything that defines the work,
+ * there is no invalidation step anyone can forget.
  */
 
 const BASE = {
@@ -16,23 +17,33 @@ const BASE = {
 };
 
 describe('cache key', () => {
+  // Without determinism the cache never hits and the feature is pointless - every
+  // ticket would pay for a model call it had already paid for.
   test('is stable for identical input', () => {
     assert.equal(buildCacheKey(BASE), buildCacheKey({ ...BASE }));
   });
 
+  // Templated and copy-pasted tickets differ only in spacing and case. If those missed,
+  // the cache would barely hit on exactly the traffic it exists to serve.
   test('ignores casing and whitespace, so near-identical tickets share an entry', () => {
     const noisy = { ...BASE, subject: '  CHARGED   twice ', body: 'We  were billed twice\nfor invoice INV-1.' };
     assert.equal(buildCacheKey(BASE), buildCacheKey(noisy));
   });
 
+  // The obvious correctness check: two different tickets must never collide onto one
+  // cached answer.
   test('changes when the ticket text changes', () => {
     assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, body: 'Something else' }));
   });
 
+  // Upgrading the model must not silently serve answers the old one produced, which is
+  // what makes switching models a one-variable change rather than a migration.
   test('changes when the model changes', () => {
     assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, model: 'gemini-3.8-flash' }));
   });
 
+  // The question the brief asks directly: edit the prompt and old results become
+  // unreachable, with no cache to clear during the deploy.
   test('changes when the prompt changes', () => {
     assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, promptFingerprint: 'v2-def456' }));
   });
