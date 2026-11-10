@@ -758,9 +758,3 @@ tests/unit/              output validation, retry logic, cache keys (no database
 tests/integration/       worker behaviour and the HTTP API (needs TEST_DATABASE_URL)
 postman_collection.json  21 requests with assertions
 ```
-
-**One note on structure.** `triager.js` (model call, validation, retry) touches no
-database, and `service.js` (cache, saving, status changes) makes no model calls. That
-separation is why the retry and validation rules can be tested thoroughly against a stub
-provider with no PostgreSQL involved, and it is the first place I would look to add a
-second kind of model task later.
