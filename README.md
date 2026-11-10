@@ -740,30 +740,19 @@ About 12 a second on average, with higher peaks. Roughly in the order I would do
 
 ## Assumptions I made
 
-Where the brief left room, I made a decision and noted it here.
+Where the brief left room, I decided and noted it here.
 
-- **`needs_review` and `failed` are different states.** The brief names "needs manual
-  review" for unusable model output. I kept `failed` separate for infrastructure failures
-  that ran out of retries, because the two need different human responses: one is "triage
-  this by hand", the other is "fix the provider, then press retry".
-- **The cache is global, not per customer**, and **exact-match, not semantic**. Identical
-  text from two customers is the same work. Two tickets that mean the same thing but read
-  differently cost two calls — semantic caching risks serving a confidently wrong answer,
-  a bad trade for a few cents.
-- **Duplicate detection only compares tickets from the same customer**, using a local
-  hashed bag-of-words embedder. It is lexical, not semantic: it catches a customer
-  re-sending the same complaint in different words (~0.83 similarity, versus ~0.60 for two
-  *different* billing complaints from the same customer), and will miss a paraphrase
-  sharing no vocabulary. It needs no API key and no `pgvector`, so `docker compose up`
-  works on a stock PostgreSQL image.
-- **Migrations run on startup**, guarded by an advisory lock. Convenient here; at scale
-  this moves into a deployment step so schema changes are not tied to pod restarts.
-- **API keys come from the environment** and are compared in constant time. Real
-  multi-tenant auth means per-customer keys stored hashed, with scopes and rotation — a
-  different feature, not a different middleware.
-- **Ticket bodies are truncated to 6,000 characters before the model call.** Triage quality
-  does not improve with the fortieth paragraph of a pasted stack trace. The full body is
-  still stored and returned by the API.
+- **`needs_review` and `failed` are separate states.** The brief only names "needs manual
+  review", for unusable model output. I kept `failed` for infrastructure failures that ran
+  out of retries, because they need different responses: "triage this by hand" versus "fix
+  the provider, then press retry".
+- **The cache is global and exact-match.** Identical text from two customers is the same
+  work, so the key ignores who sent it. Two tickets that mean the same thing but read
+  differently cost two calls — semantic caching risks serving a confidently wrong answer.
+- **Duplicate detection only compares one customer's tickets**, using a local word-based
+  embedder. It catches the same complaint re-sent in different words (~0.83 similarity,
+  versus ~0.60 for two different billing complaints), but misses paraphrases that share no
+  vocabulary. No API key and no `pgvector` needed.
 
 ---
 
