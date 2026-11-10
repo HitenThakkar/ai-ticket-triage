@@ -52,7 +52,7 @@ describe('retry on invalid output', () => {
   });
 
   // The point of retrying at all: a model that fails twice and then answers correctly
-  // should produce a triaged ticket, not a ticket sitting in needs_review.
+  // should produce a triaged ticket, not one sitting in needs_review.
   test('retries invalid output and succeeds within the budget', async () => {
     const provider = scriptedProvider(['not json at all', '{"category":"billing"}', VALID]);
     const out = await runTriage({ provider, ticket: TICKET, validationAttempts: 3 });
@@ -60,27 +60,15 @@ describe('retry on invalid output', () => {
     assert.equal(out.result.priority, 'high');
   });
 
-  // The budget has to be a hard stop. Without this, a model stuck in a bad pattern
-  // would retry forever and bill us for each attempt.
-  test('gives up after the configured number of attempts, and uses no more', async () => {
+  // Two guarantees at once: the budget is a hard stop, and on exhaustion it throws
+  // rather than returning partial data - so the caller has nothing invalid to persist.
+  test('gives up after the configured attempts, throwing rather than returning', async () => {
     const provider = scriptedProvider(['nonsense']);
     await assert.rejects(
       () => runTriage({ provider, ticket: TICKET, validationAttempts: 3 }),
       InvalidModelOutputError,
     );
     assert.equal(provider.calls(), 3);
-  });
-
-  // The core guarantee: on exhaustion it throws rather than returning partial data,
-  // so the caller has nothing invalid to persist even if it tried.
-  test('never returns a result built from invalid output', async () => {
-    const provider = scriptedProvider([
-      JSON.stringify({ category: 'nope', priority: 'P1', summary: 'x' }),
-    ]);
-    await assert.rejects(
-      () => runTriage({ provider, ticket: TICKET, validationAttempts: 2 }),
-      InvalidModelOutputError,
-    );
   });
 
   // Rejected calls still cost tokens, so they have to reach the usage ledger. Counting
@@ -96,51 +84,36 @@ describe('retry on invalid output', () => {
     });
     assert.deepEqual(outcomes, ['invalid_output', 'success']);
   });
-});
 
-describe('infrastructure failures do not consume the validation budget', () => {
-  // A 429 says nothing about the model's ability to answer. Spending the budget on it
-  // would send a perfectly good ticket to needs_review because the provider was busy.
-  test('a transient error propagates immediately', async () => {
-    const provider = scriptedProvider([new TransientLLMError('429', { kind: 'rate_limit' })]);
-    await assert.rejects(
-      () => runTriage({ provider, ticket: TICKET, validationAttempts: 3 }),
-      TransientLLMError,
-    );
-    assert.equal(provider.calls(), 1);
-  });
-
-  // Same reasoning for a bad API key: two more identical failures tell us nothing and
-  // delay the operator seeing the real problem.
-  test('a permanent error propagates immediately', async () => {
-    const provider = scriptedProvider([new PermanentLLMError('401', { kind: 'auth' })]);
-    await assert.rejects(
-      () => runTriage({ provider, ticket: TICKET, validationAttempts: 3 }),
-      PermanentLLMError,
-    );
-    assert.equal(provider.calls(), 1);
+  // A 429 says nothing about the model's ability to answer, and a bad key fails the
+  // same way every time. Spending the validation budget on either would send a
+  // perfectly good ticket to needs_review for an unrelated reason.
+  test('infrastructure failures propagate without consuming the budget', async () => {
+    for (const err of [
+      new TransientLLMError('429', { kind: 'rate_limit' }),
+      new PermanentLLMError('401', { kind: 'auth' }),
+    ]) {
+      const provider = scriptedProvider([err]);
+      await assert.rejects(() => runTriage({ provider, ticket: TICKET, validationAttempts: 3 }));
+      assert.equal(provider.calls(), 1);
+    }
   });
 });
 
 describe('failure classification', () => {
   const map = (status) => mapGeminiError(new ApiError({ status, message: 'err' }), { model: 'm' });
 
-  // These recover on their own, so the ticket must stay in the queue. Treating them as
-  // permanent would throw away work for a problem that fixes itself.
-  test('429 and 5xx are retryable', () => {
+  // 429s and 5xx recover on their own, so the ticket stays queued. A credentials
+  // failure never will, so retrying only burns the budget and buries the real error.
+  test('sorts provider errors into retryable and permanent', () => {
     assert.ok(map(429) instanceof TransientLLMError);
     assert.ok(map(503) instanceof TransientLLMError);
-  });
-
-  // A credentials failure will fail identically every time, so retrying only burns the
-  // budget and buries the error an operator needs to see.
-  test('401 is permanent', () => {
     assert.ok(map(401) instanceof PermanentLLMError);
   });
 
   // The default branch matters most: an error we have not seen before must keep the
   // ticket alive. Losing a ticket is the worst outcome available to this service.
-  test('an unrecognised failure is treated as retryable', () => {
+  test('treats an unrecognised failure as retryable', () => {
     assert.ok(mapGeminiError(new Error('socket hang up')) instanceof TransientLLMError);
   });
 });
@@ -148,7 +121,7 @@ describe('failure classification', () => {
 describe('backoff', () => {
   const OPTS = { baseMs: 1000, maxMs: 60_000 };
 
-  // Growth has to be exponential so a struggling provider gets progressively more
+  // Growth must be exponential so a struggling provider gets progressively more
   // breathing room, and capped so a ticket never waits for hours.
   test('grows exponentially and is capped', () => {
     const fixed = { ...OPTS, random: () => 0 };

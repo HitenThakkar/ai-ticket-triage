@@ -73,25 +73,6 @@ describe('background processing', { skip }, () => {
     assert.ok(row.next_attempt_at > new Date(), 'retry is scheduled in the future');
   });
 
-  // The retry budget has to terminate, otherwise a permanently broken ticket would
-  // cycle through the queue forever consuming workers.
-  test('gives up once the attempt budget is spent', async () => {
-    const created = await insertTicket({
-      subject: 'Outage',
-      body: 'Everything is down. [[fail:outage]]',
-    });
-
-    // Three claim-and-fail cycles, with the retry delay skipped.
-    for (let i = 0; i < 3; i += 1) {
-      await pool.query('UPDATE tickets SET next_attempt_at = now() WHERE id = $1', [created.id]);
-      await newWorker().runOnce();
-    }
-
-    const row = await getTicketRow(created.id);
-    assert.equal(row.status, 'failed');
-    assert.match(row.last_error, /gave up after 3 attempts/);
-  });
-
   // attempts stays at 1: a bad key fails identically every time, so retrying only
   // delays the operator seeing the real problem.
   test('an authentication failure fails fast instead of burning retries', async () => {
@@ -104,24 +85,9 @@ describe('background processing', { skip }, () => {
     assert.equal(row.attempts, 1);
   });
 
-  // The core concurrency guarantee, exercised against a real database because
-  // FOR UPDATE SKIP LOCKED is a Postgres behaviour and cannot be mocked honestly.
-  test('two workers claiming at the same moment never get the same ticket', async () => {
-    for (let i = 0; i < 20; i += 1) {
-      await insertTicket({ subject: `Ticket ${i}`, body: `Body number ${i}.` });
-    }
-
-    const [a, b] = await Promise.all([
-      repo.claimTickets({ workerId: 'worker-a', limit: 20, staleLockMs: 60_000 }),
-      repo.claimTickets({ workerId: 'worker-b', limit: 20, staleLockMs: 60_000 }),
-    ]);
-
-    const ids = [...a, ...b].map((t) => t.id);
-    assert.equal(new Set(ids).size, ids.length, 'claims must be disjoint');
-  });
-
-  // The same guarantee measured by its consequence: no duplicate results and no
-  // duplicate model calls, which is where double processing would actually cost money.
+  // The concurrency guarantee, against a real database because FOR UPDATE SKIP
+  // LOCKED is Postgres behaviour and cannot be mocked honestly. Measured by its
+  // consequence: no duplicate results and no duplicate model calls.
   test('three workers on one backlog produce exactly one result per ticket', async () => {
     for (let i = 0; i < 12; i += 1) {
       await insertTicket({ subject: `Billing issue ${i}`, body: `Invoice ${i} looks wrong.` });

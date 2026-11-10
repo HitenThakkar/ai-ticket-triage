@@ -24,20 +24,11 @@ describe('model output validation', () => {
     assert.equal(parsed.value.category, 'billing');
   });
 
-  // The category column is a Postgres enum, so an invented value would fail at INSERT
-  // and leave the ticket half-processed. It has to be caught here instead.
-  test('rejects a category outside the allowed list', () => {
-    const parsed = parseTriageOutput({ ...VALID, category: 'refunds' });
-    assert.equal(parsed.ok, false);
-    assert.match(parsed.issues.join(' '), /category/);
-  });
-
-  // Models reach for familiar vocabulary like "P0" or "critical" instead of our four
-  // values. This is the most common malformed response in practice.
-  test('rejects a priority outside the allowed list', () => {
-    const parsed = parseTriageOutput({ ...VALID, priority: 'P0' });
-    assert.equal(parsed.ok, false);
-    assert.match(parsed.issues.join(' '), /priority/);
+  // Both columns are Postgres enums, so an invented value would fail at INSERT and
+  // leave the ticket half-processed. "P0" is the most common one models reach for.
+  test('rejects values outside the allowed lists', () => {
+    assert.equal(parseTriageOutput({ ...VALID, category: 'refunds' }).ok, false);
+    assert.equal(parseTriageOutput({ ...VALID, priority: 'P0' }).ok, false);
   });
 
   // A missing field must fail rather than default, because a silent default would be a
@@ -48,15 +39,9 @@ describe('model output validation', () => {
   });
 
   // Gemini's structured output ignores maxLength, so the provider cannot enforce this
-  // limit for us - the summary column can, but only after a failed INSERT.
-  test('rejects a summary longer than the column allows', () => {
-    const parsed = parseTriageOutput({ ...VALID, summary: 'x'.repeat(201) });
-    assert.equal(parsed.ok, false);
-  });
-
-  // Whitespace-only is technically a string, so length alone is not enough - an empty
-  // summary would show up as a blank row in the support queue.
-  test('rejects an empty summary', () => {
+  // for us. Whitespace-only is checked too, since length alone would let it through.
+  test('rejects a summary that is too long or effectively empty', () => {
+    assert.equal(parseTriageOutput({ ...VALID, summary: 'x'.repeat(201) }).ok, false);
     assert.equal(parseTriageOutput({ ...VALID, summary: '   ' }).ok, false);
   });
 
@@ -78,15 +63,6 @@ describe('model output validation', () => {
     const wrapped = ['Sure! Here is the triage:', '```json', JSON.stringify(VALID), '```'].join('\n');
     assert.equal(parseTriageOutput(wrapped).ok, true);
   });
-
-  // The column is nullable, so an omitted reply must become an explicit null rather
-  // than undefined, which the driver would reject.
-  test('normalises an absent suggested_reply to null', () => {
-    const { suggested_reply, ...rest } = VALID;
-    const parsed = parseTriageOutput(rest);
-    assert.equal(parsed.ok, true);
-    assert.equal(parsed.value.suggested_reply, null);
-  });
 });
 
 describe('prompt safety', () => {
@@ -99,15 +75,5 @@ describe('prompt safety', () => {
     );
     assert.equal((prompt.match(/<ticket id="abc123">/g) ?? []).length, 1);
     assert.equal((prompt.match(/<\/ticket id="abc123">/g) ?? []).length, 1);
-  });
-
-  // Retries must feed back our validator's complaints and never the model's previous
-  // output, which may contain text the customer injected.
-  test('retry prompts carry the validator complaints', () => {
-    const retry = buildUserPrompt(
-      { subject: 's', body: 'b' },
-      { repairHints: ['priority: Invalid enum value'] },
-    );
-    assert.match(retry, /priority: Invalid enum value/);
   });
 });

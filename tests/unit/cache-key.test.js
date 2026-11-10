@@ -30,21 +30,16 @@ describe('cache key', () => {
     assert.equal(buildCacheKey(BASE), buildCacheKey(noisy));
   });
 
-  // The obvious correctness check: two different tickets must never collide onto one
-  // cached answer.
-  test('changes when the ticket text changes', () => {
-    assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, body: 'Something else' }));
-  });
-
-  // Upgrading the model must not silently serve answers the old one produced, which is
-  // what makes switching models a one-variable change rather than a migration.
-  test('changes when the model changes', () => {
-    assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, model: 'gemini-3.8-flash' }));
-  });
-
-  // The question the brief asks directly: edit the prompt and old results become
-  // unreachable, with no cache to clear during the deploy.
-  test('changes when the prompt changes', () => {
-    assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, promptFingerprint: 'v2-def456' }));
+  // The question the brief asks directly. Changing the model or editing the prompt must
+  // make old results unreachable, so there is no cache to clear during a deploy - and
+  // two different tickets must never collide onto one cached answer.
+  test('changes when the text, the model or the prompt changes', () => {
+    for (const change of [
+      { body: 'Something else' },
+      { model: 'gemini-3.8-flash' },
+      { promptFingerprint: 'v2-def456' },
+    ]) {
+      assert.notEqual(buildCacheKey(BASE), buildCacheKey({ ...BASE, ...change }));
+    }
   });
 });

@@ -199,7 +199,7 @@ You can also set `FAKE_FAILURE_RATE=0.3` to fail a random 30% of calls.
 **Unit tests need nothing** — no database, no network, no API key:
 
 ```bash
-npm test     # 29 tests
+npm test     # 20 tests
 ```
 
 They cover the two things the brief singles out — **output validation** (every distinct

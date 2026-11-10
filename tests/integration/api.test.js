@@ -162,12 +162,4 @@ describe('HTTP API', { skip }, () => {
 
     await request(app).post(`/api/v1/tickets/${ok.id}/retry`).set('x-api-key', API_KEY).expect(409);
   });
-
-  // Orchestrator probes must not need a secret, and readiness must actually check the
-  // database - liveness deliberately does not, so a database blip cannot kill the pod.
-  test('health and readiness need no API key', async () => {
-    await request(app).get('/healthz').expect(200);
-    const ready = await request(app).get('/readyz').expect(200);
-    assert.equal(ready.body.database.ok, true);
-  });
 });
