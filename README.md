@@ -10,7 +10,7 @@ Built with **Node.js, Express and PostgreSQL**. The language model is **Google G
 There is no queue broker and no Redis: PostgreSQL is the queue.
 
 **You do not need an API key to run this.** The default provider is a local fake that
-behaves like the real one, so the service and all 158 tests run offline and for free.
+behaves like the real one, so the service and its whole test suite run offline and for free.
 
 ```
                                    ┌──────────────────────────────┐
@@ -81,7 +81,7 @@ Where each requirement is implemented:
 | Input validation and status codes | `src/api/validation.js` |
 
 Optional extras that are also included: duplicate detection, prompt-injection
-hardening, suggested replies, token usage tracking, Docker Compose, 158 tests, API-key
+hardening, suggested replies, token usage tracking, Docker Compose, tests, API-key
 auth and rate limiting.
 
 ---
@@ -200,12 +200,13 @@ You can also set `FAKE_FAILURE_RATE=0.3` to fail a random 30% of calls.
 **Unit tests need nothing** — no database, no network, no API key:
 
 ```bash
-npm test     # 109 tests
+npm test     # 29 tests
 ```
 
-They cover output validation, the retry logic, cache keys, backoff timing, prompt
-construction, input validation, duplicate-detection maths, and the Gemini request shape
-and error mapping (using a stub, so no network calls).
+They cover the two things the brief singles out — **output validation** (every distinct
+way a model response can be wrong) and **retry logic** (the validation budget, failure
+classification, and backoff) — plus the cache key, since "don't pay twice" is only safe
+if a stale result becomes unreachable after a prompt or model change.
 
 **Integration tests need a throwaway PostgreSQL.** They create the schema themselves and
 clear it between tests:
@@ -220,7 +221,7 @@ TEST_DATABASE_URL=postgres://triage:triage@localhost:55432/triage_test npm run t
 
 If no database is reachable they skip with a message rather than fail.
 
-The 49 integration tests cover the things that are easy to get wrong:
+The integration tests cover the things that are easy to get wrong:
 
 - two workers claiming at the same moment never get the same ticket
 - a ticket is never triaged twice
@@ -753,24 +754,6 @@ Where the brief left room, I decided and noted it here.
   embedder. It catches the same complaint re-sent in different words (~0.83 similarity,
   versus ~0.60 for two different billing complaints), but misses paraphrases that share no
   vocabulary. No API key and no `pgvector` needed.
-
----
-
-## What I left out on purpose
-
-The brief asked for a clean core rather than a half-finished feature list, so these are
-named rather than half-built:
-
-- a web UI — this is a backend service, and its API is the interface
-- ticket assignment, status workflow or replies — this triages, it is not a helpdesk
-- multi-tenancy and per-customer API keys
-- generated OpenAPI documentation (the Postman collection covers the same ground)
-- semantic caching
-
-**Submission is not idempotent.** A client that retries a `POST` creates a second ticket.
-An `Idempotency-Key` header would be the fix; the duplicate detector catches the obvious
-cases meanwhile.
-
 ---
 
 ## Where the code lives
@@ -805,8 +788,8 @@ src/
   lib/                   logger, text normalisation, backoff, HttpError
 migrations/              three .sql files
 scripts/                 migrate.js, seed.js, models.js
-tests/unit/              109 tests, no database needed
-tests/integration/       49 tests, needs TEST_DATABASE_URL
+tests/unit/              output validation, retry logic, cache keys (no database)
+tests/integration/       worker behaviour and the HTTP API (needs TEST_DATABASE_URL)
 postman_collection.json  21 requests with assertions
 ```
 
